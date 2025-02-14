@@ -1,0 +1,65 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKERHUB_IMAGE = 'srikanth0370/tomcat123:tagname' // Updated Docker Hub image name and tag
+        DOCKERHUB_CREDS = credentials('dockerhub-creds') // Jenkins credentials ID for Docker Hub
+        AWS_REGION = 'us-east-1'
+        ECS_CLUSTER = 'tomcat-cluster1'
+        ECS_SERVICE = 'tomcat-service'
+    }
+
+    stages {
+        stage('Checkout GitHub Repository') {
+            steps {
+                git branch: 'main', url: 'https://github.com/karresrikanth/tomcat.git'
+            }
+        }
+
+        stage('Build and Push Docker Image') {
+            steps {
+                script {
+                    // Build the Docker image with the specified repository and tag
+                    sh "docker build -t ${DOCKERHUB_IMAGE} ."
+                    
+                    // Log in to Docker Hub using credentials
+                    sh "echo ${DOCKERHUB_CREDS_PSW} | docker login -u ${DOCKERHUB_CREDS_USR} --password-stdin"
+                    
+                    // Push the Docker image to Docker Hub
+                    sh "docker push ${DOCKERHUB_IMAGE}"
+                }
+            }
+        }
+
+        stage('Deploy to ECS Fargate') {
+            steps {
+                script {
+                    // Use AWS credentials (username and password) to authenticate the AWS CLI
+                    withCredentials([usernamePassword(
+                        credentialsId: 'aws-creds', // Jenkins credentials ID for AWS
+                        usernameVariable: 'AWS_ACCESS_KEY_ID', // Maps to AWS Access Key ID
+                        passwordVariable: 'AWS_SECRET_ACCESS_KEY' // Maps to AWS Secret Access Key
+                    )]) {
+                        // Force a new deployment of the ECS service
+                        sh """
+                        aws ecs update-service \
+                            --cluster ${ECS_CLUSTER} \
+                            --service ${ECS_SERVICE} \
+                            --force-new-deployment \
+                            --region ${AWS_REGION}
+                        """
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Deployment to ECS Fargate succeeded!'
+        }
+        failure {
+            echo 'Deployment to ECS Fargate failed!'
+        }
+    }
+}
